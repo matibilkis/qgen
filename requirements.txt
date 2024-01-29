@@ -1,0 +1,7 @@
+numpy
+qiskit
+qiskit-ibm-runtime
+qiskit[visualization]
+torch --index-url https://download.pytorch.org/whl/cu118
+matplotlib
+scipy
