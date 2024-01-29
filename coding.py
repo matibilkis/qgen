@@ -16,9 +16,17 @@ num_discrete_values = 8
 num_qubits = num_dim * int(np.log2(num_discrete_values))
 
 """
+\usepackage{amssymb}
 \newcommand{\RR}{\mathbb{R}}
 \newcommand{\disc}{D_{\bm{\phi}}}
 \newcommand{\gen}{G_{\bm{\theta}}}
+\newcommand{\kin}{k_{in}}
+\newcommand{\kout}{k_{out}}
+\newcommand{\preal}{p_{\text{real}}}
+\newcommand{\pz}{p_{z}}
+\newcommand{\min}[1]{underset{[#1]}{\text{min}\;}}
+\newcommand{\max}[1]{underset{[#1]}{\text{max}\;}}
+\newcommand{\equ}[1]{\begin{equation}[#1]\end{equation}}
 
 Goal: train a quantum circuit to become a pdf sampler (here, normal distribution).
 ## (?) JUSTIFICATION? WHY WOULD IT BE BETTER TO USE A QUANTUM CIRCUIT FOR THIS?
@@ -28,20 +36,50 @@ Goal: train a quantum circuit to become a pdf sampler (here, normal distribution
 
 Brief outline:
 
-Let X = {x^0, ...x^{s-1}} \included \mathbb{R}^{k_out} \sim p_{real}, with p_{real} unknown, our goal is to prepare a quantum state \rho \equiv \rho(p_real).
+Let $X = {x^0, ...x^{s-1}} \subseteq \mathbb{R}^{\kout} \sim \preal$, with \preal unknown, our goal is to prepare a quantum state that encodes the pdf \preal (or some approximated version of it).
 
-Let \gen : \RR^{k_{in}}\rightarrow\RR^{k_{out}} be the \textit{generator} (an agent maping samples from a prior pdf towards a pdf [hopefully close to the true one], and \disc:\RR^{k_{out}}\rightarrow (0,1] be the discriminator (*1), which takes samples obtained from a pdf and discerns if those were obtained from the real (values closer to 1) one or otherwise fake (values closer to 0).
+Our 'input' is - aside from the training set X, some noise z~ \pz, which can be seen as a 'prior' pdf, living in a $\kin$-dimensional space.
 
-Each agent has a given goal, encoded in a cost function:
+Let $\gen : \RR^{\kin}\rightarrow\RR^{\kout}$ be the \textit{generator} (an agent maping samples $z\sim\pz$ towards a pdf [which is hopefully close to the true one].
 
-L_G = - \mathbb{E}_{\bm{z}\sim p_{prior}} \log{\disc(\gen(\bm{z}))},
+Let \disc:\RR^{k_{out}}\rightarrow [0,1] be the discriminator (*1), which takes samples obtained from a pdf and discerns if those were obtained from the real (values closer to 0) one or otherwise fake (values closer to 1). In other words, $\disc(\bm{y})$ retrieves the probability of $\bm{y}$ being sampled from $\preal$, according the the tester $\disc$, aimed to be optimized [1].(*2)
 
-which maximizes the likelihood that $\gen$ generates samples labeled as real. Thus, the discriminator \textit{competes} with $\gen$, with a cost function defined as
+Informally, the problem is encoded into a cost function of the form:
+\begin{align}
+COST &=  TERM_1  + TERM_2 \\
+TERM_1 &---> D(x) \text{classified as 1, if }x\sim\preal \\
+TERM_2 &---> G(z)\\
+\end{align}
+gets so close to $\preal$ that D can't distinguish. Here, if you are the discriminator you would like to minimize your error probability,
 
-L_D = \mathbb{E}_{x\sim p_{real}} [\log \disc(\bm{x})] + \mathbb{E}_{z \sim \p_{prior}} \log [1 - \disc(G_\theta(\bm{z}))]
+but if you are the generator you would like to maximize it (to fool the discriminator!)
 
-(*1) There should 
-"""
+The discrimination-generator training can be formulated in terms of a minimax optimization problem, given by
+\equ{\max{D}\min{G} \mathbb{E}_{x\sim\preal}[\log D(x)] + \mathbb{E}_{z\sim\pz}[\log (1 - D(G(z)))]}.
+
+Note that the second term stands for the probability that the discriminator deems $G(z)$ fake: whereas the discriminator shall maximize such value, the generator aims to minimize it.
+
+In practice, this procedure is carried out sequentially: the discriminator is trained so to perform very good for a fixed \gen, and then the generator is optimized to beat such generator but only slightly, since otherwise it can lead to instabilities [1]. Moreover, at early stages, the discriminator can easily discern whether samples $G(z)$ are obtained from $\preal$ or not, since $\gen$ will be very bad. Since the generator needs to minimize the quantity $\mathbb{E}_{z\sim\pz}[\log (1 - D(G(z)))]}$, which is \textit{saturated} at the value of $1$, oen can consider the maximization of $\mathbb{E}_{z\sim\pz}\log(D(G(z)))$ wrt to the generator; as it can easily be checked, the gradients will be higher in the warm-up scenario.
+
+Hence, the following cost functions are taking into account:
+
+\begin{align}
+L_D &= - \big( \mathbb{E}_{x\sim\preal}[\log D(x)] + \mathbb{E}_{z\sim\pz}[\log (1 - D(G(z)))]} \big) \\
+L_G &= -\mathbb{E}_{z\sim\pz}\log(D(G(z)))
+\end{align}
+
+\section{A quantum generator}
+While the generator ussually consists on a NN, [2] proposes to replace it with a parametrized quantum circuit (PQC). As highlighted by the authors, the importance of having a PQC trained to sample from a target $\preal$ is that of \textit{loading} classical data into the quantum state (and afterwards perform quantum infor processing routines such as HHL or QAE)[3]
+
+
+%%%% REFERENCES %%%
+(*1) There should be a (0,1] instead of a {0,1} in the definition of the paper in Zoufal paper (Qgans for loadingsampling pdfs) since the log(\disc) is otherwise undefined.
+(*2) Has a rigurous hypothesis testing formulation been made with these GANs? Connection w/ Matera ?
+
+[1] https://arxiv.org/abs/1406.2661
+[2] https://www.nature.com/articles/s41534-019-0223-2
+[3] Let us highlight that the complexity n-bits into a quantum state is O(2^n) in terms of #gates, whereas as claimed by Zoufal the QGAN requires O(Poly(n)). This is a trap however, because of BPs.
+ """
 
 
 
