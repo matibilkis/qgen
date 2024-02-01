@@ -252,7 +252,7 @@ seeds()
 m_samples_real = int(2e3)
 qc_gen= construct_qgen()
 bins = torch.linspace(-1,1,8)
-shots = 10000
+shots = int(1e4)
 sampler = Sampler(options={"shots": shots, "seed": qiskit_algorithms.random_seed})
 qnn_gen_sam = SamplerQNN(circuit=qc_gen, sampler=sampler, input_params=[], weight_params=qc_gen.parameters,sparse=False) ##ths gives the amplitudes of the state in the computational basis
 qnn_gen = TorchConnector(qnn_gen_sam, initial_weights = np.random.random(qc_gen.num_parameters))
@@ -272,7 +272,6 @@ type_qgen = qnn_gen(torch.tensor([]))
 samples_qgen = torch.multinomial(type_qgen,m_samples_real,replacement=True)/8-1.
 probs_fake = type_qgen[((samples_qgen+1)*8).int()].unsqueeze(-1)
 
-### train discriminator
 
 def cost_discriminator(samples_real,disc_on_fake,disc_on_real):
     uniform_prior = 1/m_samples_real
@@ -280,6 +279,11 @@ def cost_discriminator(samples_real,disc_on_fake,disc_on_real):
     cost_discriminator_fake = -torch.sum(torch.einsum('bt,bt->bt',torch.log(1.-disc_on_fake),probs_fake.detach() ))
     cost_distriminatorr = cost_discriminator_fake + cost_discriminator_real
     return cost_distriminatorr
+
+
+def cost_generator(disc_on_fake, probs_fake):
+    return -torch.sum(torch.einsum('bt,bt->bt',torch.log(disc_on_fake.detach()),probs_fake ))
+
 
 history = {}
 costs = history["costs"] = {}
@@ -290,32 +294,31 @@ costs["gen"]= []
 
 samples_real = torch.tensor(np.random.randn(m_samples_real,1), dtype=torch.float32)
 
-for k in tqdm(range(100)):
-    disc_optimizer.zero_grad()
-    disc_on_real = discriminator(samples_real)
-    disc_on_fake = discriminator(samples_qgen.unsqueeze(-1))
-    cost_discc = cost_discriminator(samples_real,disc_on_fake,disc_on_real)
-    cost_discc.backward()
-    disc_optimizer.step()
-    costs["disc"].append(cost_discc)
-#plt.plot(torch.tensor(costs["disc"]).detach().numpy())
+for epoch in tqdm(range(50)):
+
+    for k in range(100):
+        disc_optimizer.zero_grad()
+        disc_on_real = discriminator(samples_real)
+        disc_on_fake = discriminator(samples_qgen.unsqueeze(-1))
+        cost_discc = cost_discriminator(samples_real,disc_on_fake,disc_on_real)
+        cost_discc.backward()
+        disc_optimizer.step()
+        costs["disc"].append(cost_discc)
+    #plt.plot(torch.tensor(costs["disc"]).detach().numpy())
 
 
-def cost_generator(disc_on_fake, probs_fake):
-    return -torch.sum(torch.einsum('bt,bt->bt',torch.log(disc_on_fake.detach()),probs_fake ))
+    probs.append(qnn_gen(torch.tensor([])).detach().numpy())
+    for k in range(100):
+        gen_optimizer.zero_grad()
+        type_qgen = qnn_gen(torch.tensor([]))
+        samples_qgen = torch.multinomial(type_qgen,m_samples_real,replacement=True)/8-1.
+        probs_fake = type_qgen[((samples_qgen+1)*8).int()].unsqueeze(-1)
+        disc_on_fake = discriminator(samples_qgen.unsqueeze(-1)).detach()
 
-probs.append(qnn_gen(torch.tensor([])).detach().numpy())
-for k in tqdm(range(100)):
-    gen_optimizer.zero_grad()
-    type_qgen = qnn_gen(torch.tensor([]))
-    samples_qgen = torch.multinomial(type_qgen,m_samples_real,replacement=True)/8-1.
-    probs_fake = type_qgen[((samples_qgen+1)*8).int()].unsqueeze(-1)
-    disc_on_fake = discriminator(samples_qgen.unsqueeze(-1)).detach()
-
-    cost_genn = cost_generator(disc_on_fake, probs_fake)
-    cost_genn.backward()
-    gen_optimizer.step()
-    costs["gen"].append(cost_genn)
+        cost_genn = cost_generator(disc_on_fake, probs_fake)
+        cost_genn.backward()
+        gen_optimizer.step()
+        costs["gen"].append(cost_genn)
 
 
 plt.plot(torch.tensor(costs["gen"]).detach().numpy())
