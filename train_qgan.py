@@ -82,22 +82,6 @@ class Discriminator(torch.nn.Module):
 
 
 
-def construct_nets(M= int(2e4), m=int(1e3)):
-    ###Define discriminator
-    discriminator = Discriminator(input_size=m)
-    disc_optimizer = Adam(discriminator.parameters(), lr=1e-3)
-
-    ### Define generator
-
-    qc_gen= construct_qgen()
-    bins = torch.linspace(-1,1,8)
-    sampler = Sampler(options={"shots": M, "seed": qiskit_algorithms.random_seed})
-    qnn_gen_sam = SamplerQNN(circuit=qc_gen, sampler=sampler, input_params=[], weight_params=qc_gen.parameters,sparse=False)
-    qnn_gen = TorchConnector(qnn_gen_sam, initial_weights = np.random.random(qc_gen.num_parameters))
-    gen_optimizer = Adam(qnn_gen.parameters(), lr=1e-2)
-
-    return qnn_gen, gen_optimizer, discriminator, disc_optimizer
-
 
 def cost_discriminator(samples_real,disc_on_fake,disc_on_real,M=int(2e4)):
     uniform_prior = 1/8  #this is 1/|A| with A alphabet
@@ -159,6 +143,33 @@ def give_empty_history(qnn_gen,probs_real):
     return history,probs,metrics,costs
 
 
+def construct_nets(M= int(2e4), m=int(1e3) ,lr=1e-2):
+    ###Define discriminator
+    discriminator = Discriminator(input_size=m)
+    disc_optimizer = Adam(discriminator.parameters(), lr=1e-3)
+
+    ### Define generator
+
+    qc_gen= construct_qgen()
+    bins = torch.linspace(-1,1,8)
+    sampler = Sampler(options={"shots": M, "seed": qiskit_algorithms.random_seed})
+    qnn_gen_sam = SamplerQNN(circuit=qc_gen, sampler=sampler, input_params=[], weight_params=qc_gen.parameters,sparse=False)
+    qnn_gen = TorchConnector(qnn_gen_sam, initial_weights = np.random.random(qc_gen.num_parameters))
+    gen_optimizer = Adam(qnn_gen.parameters(), lr=1e-4)
+
+    return qnn_gen, gen_optimizer, discriminator, disc_optimizer
+
+
+def plot(metrics, what="disc_on"):
+    if what=="disc_on":
+        plt.figure()
+        ax=plt.subplot(111)
+        ax.plot(torch.tensor(metrics["disc_on_fake"]))
+        ax.plot(torch.tensor(metrics["disc_on_real"]))
+    elif what=="cost_gen":
+        plt.figure()
+        ax=plt.subplot(111)
+        ax.plot(torch.tensor(costs["gen"]))
 
 seeds()
 M=int(1e3) ### samples in each epoch
@@ -167,10 +178,59 @@ m=M ###number of splits in the epoch
 qnn_gen, gen_optimizer, discriminator, disc_optimizer = construct_nets(M=M, m=M)
 _,probs_real = give_samples_real(M=1)
 history,probs,metrics,costs = give_empty_history(qnn_gen, probs_real)
+for iteration in range(100):
+    print(metrics["DP"][-1])
+
+    ### PRE-TRAIN DISC
+    for k in tqdm(range(100)):
+        samples_real, probs_real = give_samples_real(M=M)
+
+        #### DISCRMINATOR STEP
+        probs_fake, samples_qgen = call_qgen(qnn_gen,shots=len(samples_real))
+        samples_qgen, samples_real = process_batch(samples_qgen), process_batch(samples_real)
+
+        disc_optimizer.zero_grad()
+        disc_on_real = discriminator(samples_real)
+        disc_on_fake = discriminator(samples_qgen)
+        cost_discc = cost_discriminator(samples_real,disc_on_fake,disc_on_real,M=M)
+        cost_discc.backward()
+        disc_optimizer.step()
+
+        metrics["disc_on_real"].append(torch.mean(disc_on_real))
+        metrics["disc_on_fake"].append(torch.mean(disc_on_fake))
+        costs["disc"].append(cost_discc)
+
+    for j in tqdm(range(100)):
+        gen_optimizer.zero_grad()
+        type_qgen = qnn_gen(torch.tensor([]))
+        probs_fake, samples_qgen = call_qgen(qnn_gen,shots=M)
+        samples_qgen = process_batch(samples_qgen)
+
+        disc_on_fake = discriminator(samples_qgen).detach()
+        cost_genn = cost_generator(disc_on_fake, probs_fake)
+        cost_genn.backward()
+        gen_optimizer.step()
+        costs["gen"].append(cost_genn)
+        probs.append(qnn_gen(torch.tensor([])).detach().numpy())
+        metrics["KL"].append(kl(probs_real.squeeze(),probs[-1]))
+        metrics["DP"].append(np.abs(probs[-1] - probs_real.squeeze())/probs_real.squeeze())
+
+        metrics["disc_on_real"].append(torch.mean(disc_on_real))
+        metrics["disc_on_fake"].append(torch.mean(disc_on_fake))
+
+plot(metrics,what="cost_gen")
 
 
 
-for k in tqdm(range(10000)):
+
+
+type_qgen = qnn_gen(torch.tensor([]))
+probs_fake, samples_qgen = call_qgen(qnn_gen,shots=M)
+samples_qgen = process_batch(samples_qgen)
+
+disc_on_fake = discriminator(samples_qgen).detach()
+
+for k in tqdm(range(1000)):
     samples_real, probs_real = give_samples_real(M=M)
 
     #### DISCRMINATOR STEP
@@ -190,7 +250,7 @@ for k in tqdm(range(10000)):
 
 
     #### GENERATOR STEP
-    if k%100==0:
+    if k%1000==0:
         gen_optimizer.zero_grad()
         type_qgen = qnn_gen(torch.tensor([]))
         probs_fake, samples_qgen = call_qgen(qnn_gen,shots=M)
@@ -205,7 +265,7 @@ for k in tqdm(range(10000)):
         metrics["KL"].append(kl(probs_real.squeeze(),probs[-1]))
         metrics["DP"].append(np.abs(probs[-1] - probs_real.squeeze())/probs_real.squeeze())
 
-
+        print(metrics["DP"][-1])
 
 plt.plot(probs[-1])
 plt.plot(probs_real)
