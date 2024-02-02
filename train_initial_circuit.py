@@ -31,7 +31,8 @@ def normal(x,mu=0.0, sigma = 1):
     return np.exp(-(x-mu)**2/(2*sigma**2))/np.sqrt(4*np.pi*sigma**2)
 
 coords = np.linspace(-1, 1, 8)
-probs = np.array([normal(x) for x in coords])
+#probs = np.array([normal(x) for x in coords])
+probs = np.array([1/len(coords) for x in coords])
 
 
 ### Initial state of the generator (prior)
@@ -83,6 +84,6 @@ ax.plot(amps0[-1])
 ax.plot(target_prob)
 
 trained_params_qprior = np.stack([k.detach().numpy() for k in list(qprior.parameters())[0]])
-qprior_dir = "data/qprior/normal/"
+qprior_dir = "data/qprior/uniform/"
 os.makedirs(qprior_dir,exist_ok=True)
 np.save(qprior_dir+"params",trained_params_qprior)
