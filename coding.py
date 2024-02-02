@@ -316,6 +316,9 @@ samples_real, probs_real = give_samples_real(M=M)
 probs_fake, samples_qgen = call_qgen(qnn_gen)
 
 
+## TO do... batch_size
+
+### TRAINING LOOP ####
 history = {}
 costs = history["costs"] = {}
 probs = history["probs"] = []
@@ -328,7 +331,7 @@ plt.plot(probs[-1])
 plt.plot(probs_real)
 
 
-for k in tqdm(range(3000)):
+for k in tqdm(range(1000)):
     disc_optimizer.zero_grad()
     disc_on_real = discriminator(samples_real)
     disc_on_fake = discriminator(samples_qgen.unsqueeze(-1))
@@ -344,7 +347,8 @@ torch.mean(disc_on_fake)
 
 
 
-for epoch in tqdm(range(50)):
+for epoch in tqdm(range(500)):
+    samples_real, probs_real = give_samples_real(M=M)
 
     for k in range(10):
         disc_optimizer.zero_grad()
@@ -357,11 +361,10 @@ for epoch in tqdm(range(50)):
 
 
     probs.append(qnn_gen(torch.tensor([])).detach().numpy())
-    for k in range(100):
+    for k in range(1):
         gen_optimizer.zero_grad()
         type_qgen = qnn_gen(torch.tensor([]))
-        samples_qgen = torch.multinomial(type_qgen,m_samples_real,replacement=True)/8-1.
-        probs_fake = type_qgen[((samples_qgen+1)*8).int()].unsqueeze(-1)
+        probs_fake, samples_qgen = call_qgen(qnn_gen)
         disc_on_fake = discriminator(samples_qgen.unsqueeze(-1)).detach()
 
         cost_genn = cost_generator(disc_on_fake, probs_fake)
