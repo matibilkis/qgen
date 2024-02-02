@@ -171,20 +171,20 @@ def construct_nets(M= int(2e4), m=int(1e3) ,lr=1e-2, L_HEA=2):
     sampler = Sampler(options={"shots": M, "seed": qiskit_algorithms.random_seed})
     qnn_gen_sam = SamplerQNN(circuit=qc_gen, sampler=sampler, input_params=[], weight_params=qc_gen.parameters,sparse=False)
     qnn_gen = TorchConnector(qnn_gen_sam, initial_weights = np.random.random(qc_gen.num_parameters))
-    gen_optimizer = Adam(qnn_gen.parameters(), lr=1e-4)
+    gen_optimizer = Adam(qnn_gen.parameters(), lr=lr)
 
     return qnn_gen, gen_optimizer, discriminator, disc_optimizer
 
 
 seeds()
-M=int(1e5) ### samples in each epoch
+M=int(2e4) ### samples in each epoch
 m=M ###number of splits in the epoch
 
-qnn_gen, gen_optimizer, discriminator, disc_optimizer = construct_nets(M=M, m=M, L_HEA=3)
+qnn_gen, gen_optimizer, discriminator, disc_optimizer = construct_nets(M=M, m=M, L_HEA=2)
 _,probs_real = give_samples_real(M=1)
 history,probs,metrics,costs = give_empty_history(qnn_gen, probs_real)
 
-for iteration in tqdm(range(30000)):
+for iteration in tqdm(range(3000)):
 
     ### PRE-TRAIN DISC
     samples_real, probs_real = give_samples_real(M=M)
@@ -204,7 +204,7 @@ for iteration in tqdm(range(30000)):
     metrics["disc_on_fake"].append(torch.mean(disc_on_fake))
     costs["disc"].append(cost_discc)
 
-    if iteration%100==0:
+    if iteration%50==0:
         print(metrics["KL"][-1])
 
         #### GENERATOR
@@ -227,10 +227,9 @@ for iteration in tqdm(range(30000)):
         history["gen_parameters"].append(list(qnn_gen.parameters()))
         history["disc_parameters"].append(list(discriminator.parameters()))
 
-
 metrics["DP"][np.argmin(metrics["KL"])]
 
-plt.plot(probs[np.argmin(metrics["KL"])])
+plt.plot(probs[-1])
 plt.plot(probs_real)
 
 

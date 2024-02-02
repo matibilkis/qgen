@@ -1,0 +1,4 @@
+3000 epochs
+lr = 1e-2 for both, L=2 HEA, M=1e4, disc/gen = 50, discriminator without layer of 50 neurons
+KL = 0.05
+el tema es q aprende muy bien el disc

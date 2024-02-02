@@ -43,5 +43,4 @@ for epoch in tqdm(range(100)):
 #plt.plot(torch.tensor(metrics["disc_on_fake"]))
 
 plt.plot(torch.tensor(costs["gen"]).detach().numpy())
-
 plt.plot(type_qgen.detach().numpy())
