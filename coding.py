@@ -105,20 +105,9 @@ import numpy as np
 qiskit.__version__ # version 0.45.2
 
 def seeds():
-
     qiskit_algorithms.random_seed = 123456
     _ = torch.manual_seed(123456)  # suppress output
     np.random.seed(qiskit_algorithms.random_seed)
-
-seeds()
-
-def normal(x,mu=0.0, sigma = 1):
-    return np.exp(-(x-mu)**2/(2*sigma**2))/np.sqrt(4*np.pi*sigma**2)
-
-coords = np.linspace(-1, 1, 8)
-probs = np.array([normal(x) for x in coords])
-
-plt.plot(coords, probs)
 
 
 
@@ -133,7 +122,16 @@ from tqdm import tqdm
 import os
 
 
-### GENERATOR
+
+
+def normal(x,mu=0.0, sigma = 1):
+    return np.exp(-(x-mu)**2/(2*sigma**2))/np.sqrt(4*np.pi*sigma**2)
+
+coords = np.linspace(-1, 1, 8)
+probs = np.array([normal(x) for x in coords])
+
+
+### Initial state of the generator (prior)
 qc = QuantumCircuit(3)
 ind=0
 for q in qc.qubits:
@@ -146,6 +144,7 @@ for q in qc.qubits:
     ind+=1
 qc.measure_all()
 qc.draw("mpl")
+
 
 seeds()
 shots = 10000
@@ -246,43 +245,68 @@ class Discriminator(torch.nn.Module):
         return x
 
 
-seeds()
 
-### Define generator
-m_samples_real = int(2e3)
-qc_gen= construct_qgen()
-bins = torch.linspace(-1,1,8)
-shots = int(1e4)
-sampler = Sampler(options={"shots": shots, "seed": qiskit_algorithms.random_seed})
-qnn_gen_sam = SamplerQNN(circuit=qc_gen, sampler=sampler, input_params=[], weight_params=qc_gen.parameters,sparse=False) ##ths gives the amplitudes of the state in the computational basis
-qnn_gen = TorchConnector(qnn_gen_sam, initial_weights = np.random.random(qc_gen.num_parameters))
-gen_optimizer = Adam(qnn_gen.parameters(), lr=1e-2)
+def construct_nets(M= int(2e4)):
+    ###Define discriminator
+    discriminator = Discriminator()
+    disc_optimizer = Adam(discriminator.parameters(), lr=1e-4)
 
-###Define discriminator
-discriminator = Discriminator()
-disc_optimizer = Adam(discriminator.parameters(), lr=1e-2)
+    ### Define generator
 
+    qc_gen= construct_qgen()
+    bins = torch.linspace(-1,1,8)
+    sampler = Sampler(options={"shots": M, "seed": qiskit_algorithms.random_seed})
+    qnn_gen_sam = SamplerQNN(circuit=qc_gen, sampler=sampler, input_params=[], weight_params=qc_gen.parameters,sparse=False)
+    qnn_gen = TorchConnector(qnn_gen_sam, initial_weights = np.random.random(qc_gen.num_parameters))
+    gen_optimizer = Adam(qnn_gen.parameters(), lr=1e-2)
 
-
-#### get samples
-samples_real = torch.tensor(np.random.randn(m_samples_real,1), dtype=torch.float32)
-
-alphabet = np.linspace(-1,1,8)
-type_qgen = qnn_gen(torch.tensor([]))
-samples_qgen = torch.multinomial(type_qgen,m_samples_real,replacement=True)/8-1.
-probs_fake = type_qgen[((samples_qgen+1)*8).int()].unsqueeze(-1)
+    return qnn_gen, gen_optimizer, discriminator, disc_optimizer
 
 
-def cost_discriminator(samples_real,disc_on_fake,disc_on_real):
-    uniform_prior = 1/m_samples_real
-    cost_discriminator_real = torch.sum(disc_on_real*uniform_prior)
+def cost_discriminator(samples_real,disc_on_fake,disc_on_real,M=int(2e4)):
+    uniform_prior = 1/8  #this is 1/|A| with A alphabet
+    cost_discriminator_real = -torch.sum(torch.log(disc_on_real)*uniform_prior)
     cost_discriminator_fake = -torch.sum(torch.einsum('bt,bt->bt',torch.log(1.-disc_on_fake),probs_fake.detach() ))
-    cost_distriminatorr = cost_discriminator_fake + cost_discriminator_real
-    return cost_distriminatorr
+    return cost_discriminator_fake + cost_discriminator_real
 
 
 def cost_generator(disc_on_fake, probs_fake):
     return -torch.sum(torch.einsum('bt,bt->bt',torch.log(disc_on_fake.detach()),probs_fake ))
+
+def call_qgen(qgen,M=int(2e4)):
+    alphabet = np.linspace(-1,1,8)
+    type_qgen = qgen(torch.tensor([]))
+    samples_qgen = (torch.multinomial(type_qgen,M,replacement=True)/3.5 -1.)    #this moves the random-variable to the range [-1,1]
+    probs_fakee = type_qgen[((samples_qgen+1)*3.5).int()].unsqueeze(-1)
+    return probs_fakee, samples_qgen
+
+
+M=int(2e4)
+
+def normal(x,mu=0.0, sigma = 1):
+    return np.exp(-(x-mu)**2/(2*sigma**2))/np.sqrt(4*np.pi*sigma**2)
+
+def give_samples_real(M=int(2e4)):
+    """
+    ### Check i discretized correctly
+    counts,bins = np.histogram(scaled_samples_real,bins=8,density=True)
+    delta_bin = (bins[1]-bins[0])
+    counts*delta_bin/scaled_probs
+    ####
+    """
+    coords = np.linspace(-1,1,8)
+    probs = np.array([normal(x) for x in coords])
+    scaled_probs = probs/np.sum(probs)
+    samples_real = torch.multinomial(torch.tensor(scaled_probs), M, replacement=True).unsqueeze(-1)
+    scaled_samples_real = (samples_real/3.5)-1.#this moves the random-variable to the range [-1,1]
+    return scaled_samples_real,scaled_probs
+
+
+seeds()
+M=int(2e4)
+qnn_gen, gen_optimizer, discriminator, disc_optimizer = construct_nets(M=M)
+samples_real, probs_real = give_samples_real(M=M)
+probs_fake, samples_qgen = call_qgen(qnn_gen)
 
 
 history = {}
@@ -290,13 +314,32 @@ costs = history["costs"] = {}
 probs = history["probs"] = []
 costs["disc"]= []
 costs["gen"]= []
+probs.append(qnn_gen(torch.tensor([])).detach().numpy())
 
 
-samples_real = torch.tensor(np.random.randn(m_samples_real,1), dtype=torch.float32)
+plt.plot(probs[-1])
+plt.plot(probs_real)
+
+
+for k in tqdm(range(3000)):
+    disc_optimizer.zero_grad()
+    disc_on_real = discriminator(samples_real)
+    disc_on_fake = discriminator(samples_qgen.unsqueeze(-1))
+    cost_discc = cost_discriminator(samples_real,disc_on_fake,disc_on_real,M=M)
+    cost_discc.backward()
+    disc_optimizer.step()
+    costs["disc"].append(cost_discc)
+
+plt.plot(torch.tensor(costs["disc"]))
+
+torch.mean(disc_on_real)
+torch.mean(disc_on_fake)
+
+
 
 for epoch in tqdm(range(50)):
 
-    for k in range(100):
+    for k in range(10):
         disc_optimizer.zero_grad()
         disc_on_real = discriminator(samples_real)
         disc_on_fake = discriminator(samples_qgen.unsqueeze(-1))
@@ -304,7 +347,6 @@ for epoch in tqdm(range(50)):
         cost_discc.backward()
         disc_optimizer.step()
         costs["disc"].append(cost_discc)
-    #plt.plot(torch.tensor(costs["disc"]).detach().numpy())
 
 
     probs.append(qnn_gen(torch.tensor([])).detach().numpy())
