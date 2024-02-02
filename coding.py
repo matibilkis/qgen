@@ -102,15 +102,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-qiskit.__version__ # version 0.45.2
-
-def seeds():
-    qiskit_algorithms.random_seed = 123456
-    _ = torch.manual_seed(123456)  # suppress output
-    np.random.seed(qiskit_algorithms.random_seed)
-
-
-
 from qiskit import QuantumCircuit
 from qiskit.primitives import Sampler
 from qiskit.primitives import SamplerResult
@@ -121,9 +112,17 @@ from qiskit.circuit import Parameter
 from tqdm import tqdm
 import os
 
+qiskit.__version__ # version 0.45.2
+
+def seeds():
+    qiskit_algorithms.random_seed = 123456
+    _ = torch.manual_seed(123456)  # suppress output
+    np.random.seed(qiskit_algorithms.random_seed)
 
 
-
+############## INITIAL STATE GENERATOR ########
+############## INITIAL STATE GENERATOR ########
+############## INITIAL STATE GENERATOR ########
 def normal(x,mu=0.0, sigma = 1):
     return np.exp(-(x-mu)**2/(2*sigma**2))/np.sqrt(4*np.pi*sigma**2)
 
@@ -184,8 +183,16 @@ qprior_dir = "data/qprior/normal/"
 os.makedirs(qprior_dir,exist_ok=True)
 np.save(qprior_dir+"params",trained_params_qprior)
 
+############## INITIAL STATE GENERATOR ########
+############## INITIAL STATE GENERATOR ########
+############## INITIAL STATE GENERATOR ########
 
-#Construct generator
+
+##### QGAN implementation#####
+##### QGAN implementation#####
+##### QGAN implementation#####
+##### QGAN implementation#####
+
 def construct_qgen(L=2):
     """
     L: control number of HEA layers (related to circuit's depth)
@@ -249,7 +256,7 @@ class Discriminator(torch.nn.Module):
 def construct_nets(M= int(2e4)):
     ###Define discriminator
     discriminator = Discriminator()
-    disc_optimizer = Adam(discriminator.parameters(), lr=1e-4)
+    disc_optimizer = Adam(discriminator.parameters(), lr=1e-3)
 
     ### Define generator
 
