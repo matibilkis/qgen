@@ -131,6 +131,8 @@ def process_batch(a):
 def give_empty_history(qnn_gen,probs_real):
     ### TRAINING LOOP ####
     history = {}
+    history["gen_parameters"] = []
+    history["disc_parameters"] = []
     costs = history["costs"] = {}
     probs = history["probs"] = []
     metrics = history["metrics"] = {"disc_on_real":[], "disc_on_fake":[], "KL":[],"DP":[]}
@@ -142,22 +144,6 @@ def give_empty_history(qnn_gen,probs_real):
     metrics["DP"].append(np.abs(probs[-1] - probs_real.squeeze())/probs_real.squeeze())
     return history,probs,metrics,costs
 
-
-def construct_nets(M= int(2e4), m=int(1e3) ,lr=1e-2):
-    ###Define discriminator
-    discriminator = Discriminator(input_size=m)
-    disc_optimizer = Adam(discriminator.parameters(), lr=1e-3)
-
-    ### Define generator
-
-    qc_gen= construct_qgen()
-    bins = torch.linspace(-1,1,8)
-    sampler = Sampler(options={"shots": M, "seed": qiskit_algorithms.random_seed})
-    qnn_gen_sam = SamplerQNN(circuit=qc_gen, sampler=sampler, input_params=[], weight_params=qc_gen.parameters,sparse=False)
-    qnn_gen = TorchConnector(qnn_gen_sam, initial_weights = np.random.random(qc_gen.num_parameters))
-    gen_optimizer = Adam(qnn_gen.parameters(), lr=1e-4)
-
-    return qnn_gen, gen_optimizer, discriminator, disc_optimizer
 
 
 def plot(metrics, what="disc_on"):
@@ -171,13 +157,104 @@ def plot(metrics, what="disc_on"):
         ax=plt.subplot(111)
         ax.plot(torch.tensor(costs["gen"]))
 
+
+
+def construct_nets(M= int(2e4), m=int(1e3) ,lr=1e-4):
+    ###Define discriminator
+    discriminator = Discriminator(input_size=m)
+    disc_optimizer = Adam(discriminator.parameters(), lr=lr)
+
+    ### Define generator
+
+    qc_gen= construct_qgen()
+    bins = torch.linspace(-1,1,8)
+    sampler = Sampler(options={"shots": M, "seed": qiskit_algorithms.random_seed})
+    qnn_gen_sam = SamplerQNN(circuit=qc_gen, sampler=sampler, input_params=[], weight_params=qc_gen.parameters,sparse=False)
+    qnn_gen = TorchConnector(qnn_gen_sam, initial_weights = np.random.random(qc_gen.num_parameters))
+    gen_optimizer = Adam(qnn_gen.parameters(), lr=lr)
+
+    return qnn_gen, gen_optimizer, discriminator, disc_optimizer
+
+
 seeds()
-M=int(1e3) ### samples in each epoch
+M=int(1e4) ### samples in each epoch
 m=M ###number of splits in the epoch
 
 qnn_gen, gen_optimizer, discriminator, disc_optimizer = construct_nets(M=M, m=M)
 _,probs_real = give_samples_real(M=1)
 history,probs,metrics,costs = give_empty_history(qnn_gen, probs_real)
+
+for iteration in tqdm(range(10000)):
+
+    ### PRE-TRAIN DISC
+    samples_real, probs_real = give_samples_real(M=M)
+
+    #### DISCRMINATOR STEP
+    probs_fake, samples_qgen = call_qgen(qnn_gen,shots=len(samples_real))
+    samples_qgen, samples_real = process_batch(samples_qgen), process_batch(samples_real)
+
+    disc_optimizer.zero_grad()
+    disc_on_real = discriminator(samples_real)
+    disc_on_fake = discriminator(samples_qgen)
+    cost_discc = cost_discriminator(samples_real,disc_on_fake,disc_on_real,M=M)
+    cost_discc.backward()
+    disc_optimizer.step()
+
+    metrics["disc_on_real"].append(torch.mean(disc_on_real))
+    metrics["disc_on_fake"].append(torch.mean(disc_on_fake))
+    costs["disc"].append(cost_discc)
+
+    if iteration%50==0:
+        print(metrics["KL"][-1])
+
+        #### GENERATOR
+        gen_optimizer.zero_grad()
+        type_qgen = qnn_gen(torch.tensor([]))
+        probs_fake, samples_qgen = call_qgen(qnn_gen,shots=M)
+        samples_qgen = process_batch(samples_qgen)
+
+        disc_on_fake = discriminator(samples_qgen).detach()
+        cost_genn = cost_generator(disc_on_fake, probs_fake)
+        cost_genn.backward()
+        gen_optimizer.step()
+        costs["gen"].append(cost_genn)
+        probs.append(qnn_gen(torch.tensor([])).detach().numpy())
+        metrics["KL"].append(kl(probs_real.squeeze(),probs[-1]))
+        metrics["DP"].append(np.abs(probs[-1] - probs_real.squeeze())/probs_real.squeeze())
+
+        metrics["disc_on_real"].append(torch.mean(disc_on_real))
+        metrics["disc_on_fake"].append(torch.mean(disc_on_fake))
+        history["gen_parameters"].append(list(qnn_gen.parameters()))
+        history["disc_parameters"].append(list(discriminator.parameters()))
+
+plot(metrics)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#####
+
+
+
 for iteration in range(100):
     print(metrics["DP"][-1])
 
