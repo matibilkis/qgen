@@ -119,7 +119,6 @@ def seeds():
     _ = torch.manual_seed(123456)  # suppress output
     np.random.seed(qiskit_algorithms.random_seed)
 
-
 ############## INITIAL STATE GENERATOR ########
 ############## INITIAL STATE GENERATOR ########
 ############## INITIAL STATE GENERATOR ########
