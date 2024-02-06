@@ -1,4 +1,3 @@
-
 import qiskit
 import qiskit_algorithms
 import torch
@@ -15,6 +14,7 @@ from torch.optim import Adam
 from qiskit.circuit import Parameter
 from tqdm import tqdm
 import os
+
 
 qiskit.__version__ # version 0.45.2
 

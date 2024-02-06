@@ -3,8 +3,6 @@ import qiskit_algorithms
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
-
-
 from qiskit import QuantumCircuit
 from qiskit.primitives import Sampler
 from qiskit.primitives import SamplerResult
@@ -67,14 +65,14 @@ class Discriminator(torch.nn.Module):
         self.linear_input = torch.nn.Linear(input_size, 3)
         self.leaky_relu = torch.nn.LeakyReLU(0.2)
         self.linear1 = torch.nn.Linear(3, 5)
-        #self.linear2 = torch.nn.Linear(50, 20)
+        self.linear2 = torch.nn.Linear(50, 20)
         self.linear3 = torch.nn.Linear(5, 1)
         self.sigmoid = torch.nn.Sigmoid()
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         x = self.linear_input(input)
         x = self.linear1(x)
-        #x = self.linear2(x)
+        x = self.linear2(x)
         x = self.linear3(x)
         x = self.leaky_relu(x)
         x = self.sigmoid(x)
