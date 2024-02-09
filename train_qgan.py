@@ -76,43 +76,139 @@ class Discriminator(torch.nn.Module):
         x = self.sigmoid(x)
         return x
 
+
 class Generator(torch.nn.Module):
     def __init__(self, input_size=int(1e3)):
         """Input_size :: k_out"""
         super(Generator, self).__init__()
 
         self.linear_input = torch.nn.Linear(input_size, 3)   ###prior
-        self.linear1 = torch.nn.Linear(3, 50)
-        self.linear2 = torch.nn.Linear(50, 20)
-        self.linear3 = torch.nn.Linear(20, 1)
+        self.linear1 = torch.nn.Linear(3, 4)
+        self.leaky_relu = torch.nn.LeakyReLU(0.2)
+        self.linear2 = torch.nn.Linear(4, 4)
+        self.linear3 = torch.nn.Linear(4, 1)
+        self.init_weigths()
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         x = self.linear_input(input)
         x = self.linear1(x)
+        x = self.leaky_relu(x)
         x = self.linear2(x)
         x = self.linear3(x)
         return x
 
+    def init_weigths(self):
+        for m in self.modules():
+            if isinstance(m, torch.nn.Linear):
+                torch.nn.init.normal_(m.weight, std=1.)
+
+seeds()
+generator = Generator(input_size = 1)
+true_samples = torch.tensor(np.random.randn(1,M),dtype=torch.float32)
+z_prior =torch.rand(1,M,1)
+fake_samples = generator(z_prior)
+
+def give_histogram(samples,bins=100):
+    c,b = np.histogram(samples,bins=bins,density=True)
+    w = b[1]-b[0]
+    x = np.linspace(np.min(b),np.max(b),bins)
+    return x,c,w
+
+xf,cf,wf = give_histogram(fake_samples.detach().numpy().squeeze())
+xt,ct,wt = give_histogram(true_samples.detach().numpy().squeeze())
+
+ax=plt.subplot()
+ax.bar(xt,ct,width=wt, color="red")
+ax.bar(xf,cf,width=wf, color="blue")
+
 def kl(p, q):
     return np.sum(np.where((p != 0) & (q != 0), p * np.log(p / q), 0))
 
+kl(ct,cf)
+
+seeds()
+generator = Generator(input_size = 1)
+z_prior =torch.rand(1,M,1)
+fake_samples = generator(z_prior)
 
 N=100
 M=1000
 
 ### Classical
-lr = 1e-3
 generator = Generator(input_size = 1)
 discriminator = Discriminator(input_size = M)
-gen_optimizer = Adam(generator.parameters(), lr=lr)
-disc_optimizer = Adam(discriminator.parameters(), lr=lr)
+gen_optimizer = Adam(generator.parameters(), lr=1e-1)
+disc_optimizer = Adam(discriminator.parameters(), lr=1e-4)
 cost = {"disc":[], "gen":[]}
+history = {"true_samples":[], "fake_samples":[]}
 
 true_samples = torch.tensor(np.random.randn(1,M),dtype=torch.float32)
 z_prior =torch.rand(1,M,1)
 fake_samples = generator(z_prior)
 
-for epoch in tqdm(range(100)):
+z_prior =torch.rand(N,M,1)
+for k in tqdm(range(int(1e3))):
+    fake_samples = generator(z_prior)
+    true_samples = torch.tensor(np.random.randn(N,M),dtype=torch.float32)
+    disc_on_fake = discriminator(fake_samples.squeeze(-1))
+    disc_on_true = discriminator(true_samples)
+
+    ## cost discrminator
+    disc_optimizer.zero_grad()
+    p_true_true = -torch.mean(torch.log(disc_on_true))
+    p_false_false = -torch.mean(torch.log(1.-disc_on_fake))
+    cost_disc = p_true_true + p_false_false
+    cost_disc.backward()
+    disc_optimizer.step()
+
+    cost["disc"].append(cost_disc.detach())
+
+    gen_optimizer.zero_grad()
+    fake_samples = generator(z_prior)
+    disc_on_fake = discriminator(fake_samples.squeeze(-1))
+    cost_gen = -torch.mean(torch.log(disc_on_fake))
+    cost_gen.backward()
+    gen_optimizer.step()
+    cost["gen"].append(cost_gen.detach())
+    if k%100==0:
+        history["fake_samples"].append(fake_samples.detach().numpy().squeeze())
+        history["true_samples"].append(true_samples.detach().numpy().squeeze())
+
+
+plt.plot(cost["disc"])
+
+for j in range(100):
+
+    gen_optimizer.zero_grad()
+    fake_samples = generator(z_prior)
+    disc_on_fake = discriminator(fake_samples.squeeze(-1))
+    cost_gen = -torch.mean(torch.log(disc_on_fake))
+    cost_gen.backward()
+    gen_optimizer.step()
+    cost["gen"].append(cost_gen.detach())
+
+
+disc_on_fake
+
+true_samples = torch.tensor(np.random.randn(1,M),dtype=torch.float32)
+z_prior =torch.rand(1,M,1)
+fake_samples = generator(z_prior)
+
+xf,cf,wf = give_histogram(fake_samples.detach().numpy().squeeze())
+xt,ct,wt = give_histogram(true_samples.detach().numpy().squeeze())
+
+ax=plt.subplot()
+ax.bar(xt,ct,width=wt, color="red")
+ax.bar(xf,cf,width=wf, color="blue")
+
+
+
+
+
+
+
+
+for epoch in tqdm(range(10)):
 
     z_prior =torch.rand(N,M,1)
     for k in range(10):
@@ -144,19 +240,12 @@ true_samples = torch.tensor(np.random.randn(1,M),dtype=torch.float32)
 z_prior =torch.rand(1,M,1)
 fake_samples = generator(z_prior)
 
-def give_histogram(samples,bins=100):
-    c,b = np.histogram(samples,bins=bins,density=True)
-    w = b[1]-b[0]
-    x = np.linspace(np.min(b),np.max(b),bins)
-    return x,c,w
-
 xf,cf,wf = give_histogram(fake_samples.detach().numpy().squeeze())
 xt,ct,wt = give_histogram(true_samples.detach().numpy().squeeze())
 
 ax=plt.subplot()
 ax.bar(xt,ct,width=wt, color="red")
 ax.bar(xf,cf,width=wf, color="blue")
-
 
 
 
